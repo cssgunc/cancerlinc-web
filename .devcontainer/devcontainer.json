@@ -4,7 +4,7 @@
     "service": "frontend",
     "remoteUser": "vscode",
     "forwardPorts": [5173],
-    "postCreateCommand": "npm install",
+    "postCreateCommand": "npm install && sudo npm install -g @anthropic-ai/claude-code",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -37,6 +37,13 @@
                     "editor.defaultFormatter": "esbenp.prettier-vscode"
                 }
             }
-        }
+        },
+        "mounts": [
+            "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+        ],
+        "containerEnv": {
+            "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+        },
+        "containerUser": "vscode"
     }
 }

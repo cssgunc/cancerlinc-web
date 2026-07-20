@@ -1,4 +1,3 @@
-import React from "react";
 import { MoreHorizontal, ExternalLink } from "lucide-react";
 import type { ReferralWithProvider } from "~/types/referral";
 
@@ -13,16 +12,17 @@ export default function ReferralCard({
     onEdit,
     onDelete,
 }: ReferralCardProps) {
+    const contactName =
+        `${referral.referralFirstName ?? ""} ${referral.referralLastName ?? ""}`.trim() ||
+        "Unknown";
+    const title = referral.referralTitle || "";
+    const phone = referral.referralPhone || "";
+    const email = referral.referralEmail || "";
+    const websiteUrl = referral.websiteUrl?.trim() || "";
+
     const socialWorkerName = referral.socialWorker
-        ? `${referral.socialWorker.firstName} ${referral.socialWorker.lastName}`
-        : "Emily Chen"; // Fallback to match figma
-
-    const hospital = referral.socialWorker?.hospital || "UNC Hospitals";
-    const phone = referral.socialWorker?.phoneNumber || "(910) 203-5678";
-    const email = referral.socialWorker?.email || "emily.chen@gmail.com";
-    const websiteUrl = referral.websiteUrl || "#";
-
-    const referredBy = socialWorkerName;
+        ? `${referral.socialWorker.firstName ?? ""} ${referral.socialWorker.lastName ?? ""}`.trim()
+        : "";
 
     const statusColors: Record<string, string> = {
         pending: "bg-yellow-100 text-yellow-800",
@@ -35,7 +35,7 @@ export default function ReferralCard({
 
     return (
         <article className="relative rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors">
-            {/* Hover Options Menu */}
+            {/* Options Menu */}
             <div className="absolute right-2 top-2 group z-10">
                 <button
                     type="button"
@@ -45,7 +45,6 @@ export default function ReferralCard({
                     <MoreHorizontal className="h-5 w-5" />
                 </button>
 
-                {/* Dropdown (Hidden by default, shown on group hover) */}
                 <div className="absolute right-0 top-full hidden w-32 flex-col pt-1 group-hover:flex">
                     <div className="flex flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
                         <button
@@ -68,42 +67,52 @@ export default function ReferralCard({
                 </div>
             </div>
 
-            {/* Status Badge — top right */}
+            {/* Status Badge */}
             <span
                 className={`absolute right-2 top-10 rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${statusStyle}`}
             >
                 {referral.status}
             </span>
 
-            {/* Content Area */}
+            {/* Content */}
             <div className="pr-8">
                 <h3 className="text-[15px] font-bold text-gray-900 leading-tight">
-                    {socialWorkerName}
+                    {contactName}
                 </h3>
-                <p className="text-[14px] font-bold text-gray-900 leading-tight">
-                    {hospital}
-                </p>
+                {title ? (
+                    <p className="text-[14px] font-bold text-gray-900 leading-tight">
+                        {title}
+                    </p>
+                ) : null}
 
                 <div className="mt-2 text-[14px] text-gray-900 leading-snug">
-                    <p>{phone}</p>
-                    <p>{email}</p>
+                    {phone ? <p>{phone}</p> : null}
+                    {email ? <p>{email}</p> : null}
                 </div>
 
-                <p className="mt-3 text-[14px] font-bold text-gray-900">
-                    Referred By: {referredBy}
-                </p>
+                {socialWorkerName ? (
+                    <p className="mt-3 text-[14px] font-bold text-gray-900">
+                        Referred By: {socialWorkerName}
+                    </p>
+                ) : null}
 
-                {/* Website Button */}
                 <div className="mt-2">
-                    <a
-                        href={websiteUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded bg-[#A3D146] px-4 py-1.5 text-[14px] font-medium text-black hover:bg-[#92BC3F] transition-colors"
-                    >
-                        Website
-                        <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
+                    {websiteUrl ? (
+                        <a
+                            href={websiteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded bg-[#A3D146] px-4 py-1.5 text-[14px] font-medium text-black hover:bg-[#92BC3F] transition-colors"
+                        >
+                            Website
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                    ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded bg-gray-100 px-4 py-1.5 text-[14px] font-medium text-gray-400 cursor-not-allowed">
+                            Website
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </span>
+                    )}
                 </div>
             </div>
         </article>

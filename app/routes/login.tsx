@@ -116,22 +116,9 @@ export default function Login() {
                         {isSubmitting ? "LOGGING IN..." : "LOGIN"}
                     </button>
 
-                    <div className="flex items-center justify-center text-gray-500 text-sm mt-2">
-                        <span className="mx-2">- OR -</span>
-                    </div>
-
                     {error ? (
                         <p className="text-sm text-red-600">{error}</p>
                     ) : null}
-
-                    <button
-                        type="button"
-                        className="w-full bg-black text-white py-2 rounded-lg hover:bg-gray-800"
-                        onClick={() => navigate("/create-account")}
-                        disabled={isSubmitting}
-                    >
-                        CREATE AN ACCOUNT
-                    </button>
                 </form>
             </div>
         </div>

@@ -9,6 +9,7 @@ import {
 } from "~/hooks/useReferrals";
 import type { ReferralFormData } from "~/hooks/useReferrals";
 import type { ReferralWithProvider } from "~/types/referral";
+import { useAuth } from "~/services/firebase_provider";
 
 export function meta() {
     return [
@@ -20,6 +21,7 @@ export function meta() {
 // Those components will later be merged into the member/profile page where both messages and referrals will be.
 
 export default function ReferralsPage() {
+    const { user } = useAuth();
     // TODO: get this from route params or auth context
     const patientId = "3"; // Can change to update DB
 
@@ -138,6 +140,7 @@ export default function ReferralsPage() {
                 initialData={editingReferral}
                 title={editingReferral ? "Edit Referral" : "Add New Referral"}
                 patientId={patientId}
+                socialWorkerId={user?.uid ?? ""}
             />
         </div>
     );

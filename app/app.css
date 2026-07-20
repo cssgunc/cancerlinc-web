@@ -14,3 +14,63 @@ body {
         color-scheme: dark;
     }
 }
+
+.search-hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    white-space: nowrap;
+    transform-origin: center;
+}
+
+.search-hint-active {
+    animation: search-hint-settle 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.search-hint-leave {
+    animation: search-hint-leave 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.search-hint-enter {
+    animation: search-hint-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes search-hint-settle {
+    from {
+        opacity: 0;
+        transform: translate3d(-10px, 0, 0);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+@keyframes search-hint-leave {
+    from {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) rotateX(0deg);
+        clip-path: inset(0 0 0 0);
+    }
+
+    to {
+        opacity: 0;
+        transform: translate3d(12px, -8px, 0) rotateX(75deg);
+        clip-path: inset(0 100% 0 0);
+    }
+}
+
+@keyframes search-hint-enter {
+    from {
+        opacity: 0;
+        transform: translate3d(-12px, 8px, 0) rotateX(-75deg);
+        clip-path: inset(0 0 0 100%);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) rotateX(0deg);
+        clip-path: inset(0 0 0 0);
+    }
+}

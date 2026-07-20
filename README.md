@@ -53,3 +53,7 @@ Inside the dev container, you can use the following commands:
 | `npm run lint:fix`  | Lints and automatically fixes issues.                      |
 | `npm run format`    | Formats the code using Prettier.                           |
 | `npm run typecheck` | Runs the TypeScript compiler to check for type errors.     |
+
+## Feature Notes
+
+- Image messaging rollout and Firebase setup details: [`docs/chat-image-messaging.md`](/workspace/docs/chat-image-messaging.md)

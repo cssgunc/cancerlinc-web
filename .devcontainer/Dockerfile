@@ -33,6 +33,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get update \
     && apt-get install nodejs -y \
     && npm install -g npm@11.5.2 \
+    && npm install -g @openai/codex \
     && rm -rf /var/lib/apt/lists/*
 
 # Use a non-root user per https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user
