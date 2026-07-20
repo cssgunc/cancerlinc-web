@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { ArrowLeft, Ban, ShieldAlert, User as UserIcon } from "lucide-react";
 
-import { db } from "~/firebase";
+import { db } from "~/services/firebase_app";
 import { useAuth } from "~/services/firebase_provider";
 import type { User } from "~/types/user";
 

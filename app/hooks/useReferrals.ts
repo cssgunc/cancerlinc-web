@@ -11,7 +11,7 @@ import {
     addDoc,
     Timestamp,
 } from "firebase/firestore";
-import { db } from "~/firebase";
+import { db } from "~/services/firebase_app";
 import type { Referral, ReferralWithProvider } from "~/types/referral";
 import type { User } from "~/types/user";
 

@@ -89,6 +89,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /events/{eventId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
