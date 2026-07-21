@@ -13,5 +13,6 @@ export interface User {
     hospital?: string; // Clinic name for providers
     profilePhotoUrl?: string;
     websiteUrl?: string; // Optional field for clinic websites
+    banned?: boolean; // Blocks user from the chat feature when true
     createdAt: Timestamp;
 }

@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { CalendarDays, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
     Link,
@@ -25,6 +25,7 @@ export default function AppLayout() {
     const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
     const onMemberPage = useMatch("/member/:user");
+    const onCalendarPage = useMatch("/calendar");
     const navState = location.state as { from?: string; view?: unknown } | null;
     const backTo = navState?.from ?? "/";
     const [memberSearchValue, setMemberSearchValue] = useState("");
@@ -34,14 +35,15 @@ export default function AppLayout() {
     const [isHintTransitioning, setIsHintTransitioning] = useState(false);
 
     const searchValue = searchParams.get("q") ?? "";
-    const inputValue = onMemberPage ? memberSearchValue : searchValue;
+    const offIndexPage = Boolean(onMemberPage || onCalendarPage);
+    const inputValue = offIndexPage ? memberSearchValue : searchValue;
     const shouldShowHint = inputValue.length === 0 && !isSearchFocused;
 
     useEffect(() => {
-        if (!onMemberPage) {
+        if (!offIndexPage) {
             setMemberSearchValue("");
         }
-    }, [onMemberPage]);
+    }, [offIndexPage]);
 
     useEffect(() => {
         if (!shouldShowHint) {
@@ -69,10 +71,10 @@ export default function AppLayout() {
     }, [isHintTransitioning, upcomingHintIndex]);
 
     function handleSearchChange(value: string) {
-        if (onMemberPage) {
+        if (offIndexPage) {
             setMemberSearchValue(value);
 
-            // On member page: navigate to dashboard with query pre-filled
+            // Off the index page: navigate to dashboard with query pre-filled
             if (value) {
                 navigate(`/?q=${encodeURIComponent(value)}`);
             } else {
@@ -94,8 +96,8 @@ export default function AppLayout() {
         >
             <header className="shrink-0 border-b bg-white/95 backdrop-blur">
                 <div className="container mx-auto flex items-center gap-4 px-6 py-4">
-                    {/* Back button — only on member pages */}
-                    {onMemberPage ? (
+                    {/* Back button — only on member and calendar pages */}
+                    {onMemberPage || onCalendarPage ? (
                         <button
                             type="button"
                             onClick={() =>
@@ -158,8 +160,20 @@ export default function AppLayout() {
                         />
                     </div>
 
-                    {/* Notifications + Unverified indicator */}
+                    {/* Calendar + Notifications + Unverified indicator */}
                     <div className="flex items-center gap-2">
+                        <Link
+                            to="/calendar"
+                            aria-label="Event calendar"
+                            title="Event calendar"
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                                onCalendarPage
+                                    ? "border-green-600 bg-green-50 text-green-700"
+                                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                            }`}
+                        >
+                            <CalendarDays className="h-5 w-5" />
+                        </Link>
                         <NotificationBell />
                         <UnverifiedIndicator />
                     </div>
