@@ -7,6 +7,7 @@ import {
     getCountFromServer,
     getDocs,
     type DocumentSnapshot,
+    type QueryConstraint,
     limit,
     orderBy,
     query,
@@ -99,8 +100,9 @@ export default function UnverifiedPage() {
         () => restoredView?.pageSize ?? 25
     );
     const [pendingCount, setPendingCount] = useState<number | null>(null);
-    const [totalPatients, setTotalPatients] = useState<number | null>(null);
     const [verifiedCount, setVerifiedCount] = useState<number | null>(null);
+    const [unverifiedCount, setUnverifiedCount] = useState<number | null>(null);
+    const [rejectedCount, setRejectedCount] = useState<number | null>(null);
     const [savingId, setSavingId] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
 
@@ -122,21 +124,18 @@ export default function UnverifiedPage() {
         return () => clearTimeout(timer);
     }, [q]);
 
-    // When ONLY "Verified" is checked, narrow the query server-side to
-    // role==patient & isVerified==true — the exact same query the main dashboard
-    // runs — so the two tables return identical results.
-    const onlyVerified =
-        statusChecks.verified &&
-        !statusChecks.unverified &&
-        !statusChecks.rejected;
-
-    // Reset to page 0 when the query or the server-side filter changes
+    // Reset to page 0 when the query or the active status filters change
     useEffect(() => {
         cursorStack.current = [];
         setPage(0);
-    }, [debouncedQuery, onlyVerified]);
+    }, [debouncedQuery, statusChecks]);
 
-    // Fetch counts once on mount
+    // Fetch counts once on mount.
+    // Note: "unverified" (non-verified, non-banned) is derived as
+    // pending - rejected rather than queried directly, because legacy patient
+    // docs often have no `isBanned` field at all — Firestore equality filters
+    // never match documents missing the filtered field, so
+    // where("isBanned", "==", false) silently excludes them.
     useEffect(() => {
         const usersRef = collection(db, "users");
         Promise.all([
@@ -147,7 +146,6 @@ export default function UnverifiedPage() {
                     where("isVerified", "==", false)
                 )
             ),
-            getCountFromServer(query(usersRef, where("role", "==", "patient"))),
             getCountFromServer(
                 query(
                     usersRef,
@@ -155,11 +153,21 @@ export default function UnverifiedPage() {
                     where("isVerified", "==", true)
                 )
             ),
+            getCountFromServer(
+                query(
+                    usersRef,
+                    where("role", "==", "patient"),
+                    where("isBanned", "==", true)
+                )
+            ),
         ])
-            .then(([pending, total, verified]) => {
-                setPendingCount(pending.data().count);
-                setTotalPatients(total.data().count);
+            .then(([pending, verified, rejected]) => {
+                const pendingN = pending.data().count;
+                const rejectedN = rejected.data().count;
+                setPendingCount(pendingN);
                 setVerifiedCount(verified.data().count);
+                setRejectedCount(rejectedN);
+                setUnverifiedCount(pendingN - rejectedN);
             })
             .catch(() => {
                 // Non-critical — count badges stay blank
@@ -250,52 +258,107 @@ export default function UnverifiedPage() {
                     setHasNextPage(false); // no cursor pagination while searching
                 } else {
                     // --- Cursor-pagination mode ---
-                    // Uses existing composite indexes: (role, lastName), or
-                    // (role, isVerified, lastName) when filtering to verified only.
-                    const constraints: Parameters<typeof query>[1][] = [
-                        where("role", "==", "patient"),
-                    ];
-                    if (onlyVerified) {
-                        constraints.push(where("isVerified", "==", true));
+                    // The Firestore query itself only narrows by role, ordered
+                    // by lastName (existing (role, lastName) index) — it does
+                    // NOT filter by verification status, because a composite
+                    // index covering every status-checkbox combination isn't
+                    // available. Instead we scan raw pages in lastName order
+                    // and keep fetching additional batches, filtering each one
+                    // by the active status checkboxes, until we've accumulated
+                    // a full page of *matching* results (or run out of data).
+                    // This avoids the old bug where a single raw page was
+                    // fetched and then filtered, which could yield far fewer
+                    // than `pageSize` visible rows even though more matches
+                    // existed on later raw pages.
+                    if (
+                        !statusChecks.verified &&
+                        !statusChecks.unverified &&
+                        !statusChecks.rejected
+                    ) {
+                        setPatients([]);
+                        setHasNextPage(false);
+                        return;
                     }
-                    constraints.push(orderBy("lastName"));
 
-                    if (page > 0 && cursorStack.current[page - 1]) {
-                        constraints.push(
-                            startAfter(cursorStack.current[page - 1])
+                    const BATCH_SIZE = Math.max(pageSize, 50);
+                    const MAX_BATCHES = 40; // safety cap (~2000+ docs scanned)
+                    const target = pageSize + 1; // +1 lets us detect a next page
+
+                    let lastRawDoc: DocumentSnapshot | undefined =
+                        page > 0 ? cursorStack.current[page - 1] : undefined;
+                    const matches: {
+                        doc: DocumentSnapshot;
+                        patient: UnverifiedPatient;
+                    }[] = [];
+                    let exhausted = false;
+
+                    for (
+                        let batch = 0;
+                        batch < MAX_BATCHES && matches.length < target;
+                        batch++
+                    ) {
+                        const constraints: QueryConstraint[] = [
+                            where("role", "==", "patient"),
+                            orderBy("lastName"),
+                        ];
+                        if (lastRawDoc) {
+                            constraints.push(startAfter(lastRawDoc));
+                        }
+                        constraints.push(limit(BATCH_SIZE));
+
+                        const snap = await getDocs(
+                            query(usersRef, ...constraints)
                         );
+                        if (cancelled) return;
+
+                        if (snap.docs.length === 0) {
+                            exhausted = true;
+                            break;
+                        }
+
+                        for (const d of snap.docs) {
+                            lastRawDoc = d;
+                            const data = d.data();
+                            const email = (data.email as string) || "";
+                            const patient: UnverifiedPatient = {
+                                id: d.id,
+                                name:
+                                    `${(data.firstName as string) ?? ""} ${(data.lastName as string) ?? ""}`.trim() ||
+                                    email ||
+                                    d.id,
+                                email,
+                                isBanned: data.isBanned === true,
+                                isVerified: data.isVerified === true,
+                            };
+                            if (statusChecks[getCategory(patient)]) {
+                                matches.push({ doc: d, patient });
+                                if (matches.length === target) break;
+                            }
+                        }
+
+                        if (snap.docs.length < BATCH_SIZE) {
+                            exhausted = true;
+                            break;
+                        }
                     }
 
-                    constraints.push(limit(pageSize + 1));
+                    const hasNext = matches.length > pageSize;
+                    const visible = hasNext
+                        ? matches.slice(0, pageSize)
+                        : matches;
 
-                    const snap = await getDocs(query(usersRef, ...constraints));
-                    if (cancelled) return;
-
-                    const hasNext = snap.docs.length > pageSize;
-                    const docs = hasNext
-                        ? snap.docs.slice(0, pageSize)
-                        : snap.docs;
-
-                    if (docs.length > 0 && cursorStack.current.length <= page) {
-                        cursorStack.current[page] = docs[docs.length - 1];
+                    // Cursor for the next page starts after the last raw doc
+                    // we actually consumed (matching or not), so no docs are
+                    // skipped or duplicated across pages.
+                    if (
+                        lastRawDoc &&
+                        (visible.length > 0 || exhausted) &&
+                        cursorStack.current.length <= page
+                    ) {
+                        cursorStack.current[page] = lastRawDoc;
                     }
 
-                    const results: UnverifiedPatient[] = docs.map((d) => {
-                        const data = d.data();
-                        const email = (data.email as string) || "";
-                        return {
-                            id: d.id,
-                            name:
-                                `${(data.firstName as string) ?? ""} ${(data.lastName as string) ?? ""}`.trim() ||
-                                email ||
-                                d.id,
-                            email,
-                            isBanned: data.isBanned === true,
-                            isVerified: data.isVerified === true,
-                        };
-                    });
-
-                    setPatients(results);
+                    setPatients(visible.map((m) => m.patient));
                     setHasNextPage(hasNext);
                 }
             } catch (e: unknown) {
@@ -312,18 +375,32 @@ export default function UnverifiedPage() {
         return () => {
             cancelled = true;
         };
-    }, [page, debouncedQuery, pageSize, onlyVerified]);
+    }, [page, debouncedQuery, pageSize, statusChecks]);
 
-    // Client-side filter by status checkboxes. When the server query already
-    // narrowed to verified-only (and we're not searching), show rows as-is so
-    // the results match the main dashboard exactly.
+    // While searching, results aren't pre-filtered by status during fetch, so
+    // apply the status checkboxes here. During cursor pagination, `patients`
+    // is already filtered by status while accumulating each page.
     const visiblePatients = useMemo(() => {
-        if (!debouncedQuery && onlyVerified) return patients;
+        if (!debouncedQuery) return patients;
         return patients.filter((p) => statusChecks[getCategory(p)]);
-    }, [patients, statusChecks, debouncedQuery, onlyVerified]);
+    }, [patients, statusChecks, debouncedQuery]);
 
-    // Pagination denominator tracks the active server-side filter.
-    const paginationTotal = onlyVerified ? verifiedCount : totalPatients;
+    // Pagination denominator tracks the sum of counts for the active status
+    // checkboxes, so "Showing X of Y" matches what cursor pagination will
+    // actually surface across pages. Stays null (hidden) until every count
+    // relevant to the active checkboxes has loaded.
+    const paginationTotal = useMemo(() => {
+        const relevant = [
+            statusChecks.verified ? verifiedCount : 0,
+            statusChecks.unverified ? unverifiedCount : 0,
+            statusChecks.rejected ? rejectedCount : 0,
+        ];
+        if (relevant.some((c) => c === null)) return null;
+        return relevant.reduce(
+            (sum: number, c: number | null) => sum + (c ?? 0),
+            0
+        );
+    }, [statusChecks, verifiedCount, unverifiedCount, rejectedCount]);
 
     // Navigate to a member profile, carrying the current URL as origin so the
     // Back button in app_layout returns here with filters/search intact.
