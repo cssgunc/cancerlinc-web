@@ -129,12 +129,23 @@ export default function UnverifiedPage() {
         statusChecks.verified &&
         !statusChecks.unverified &&
         !statusChecks.rejected;
+    // When ONLY "Unverified" is checked (the default view), narrow the query
+    // server-side to isVerified==false using the same composite index.
+    const onlyUnverified =
+        statusChecks.unverified &&
+        !statusChecks.verified &&
+        !statusChecks.rejected;
 
-    // Reset to page 0 when the query or the server-side filter changes
+    // Reset to page 0 whenever the query or the status filter changes
     useEffect(() => {
         cursorStack.current = [];
         setPage(0);
-    }, [debouncedQuery, onlyVerified]);
+    }, [
+        debouncedQuery,
+        statusChecks.verified,
+        statusChecks.unverified,
+        statusChecks.rejected,
+    ]);
 
     // Fetch counts once on mount
     useEffect(() => {
@@ -251,37 +262,33 @@ export default function UnverifiedPage() {
                 } else {
                     // --- Cursor-pagination mode ---
                     // Uses existing composite indexes: (role, lastName), or
-                    // (role, isVerified, lastName) when filtering to verified only.
-                    const constraints: Parameters<typeof query>[1][] = [
+                    // (role, isVerified, lastName) when filtering to a single
+                    // verification status.
+                    const baseConstraints: Parameters<typeof query>[1][] = [
                         where("role", "==", "patient"),
                     ];
                     if (onlyVerified) {
-                        constraints.push(where("isVerified", "==", true));
+                        baseConstraints.push(where("isVerified", "==", true));
+                    } else if (onlyUnverified) {
+                        baseConstraints.push(where("isVerified", "==", false));
                     }
-                    constraints.push(orderBy("lastName"));
+                    baseConstraints.push(orderBy("lastName"));
 
-                    if (page > 0 && cursorStack.current[page - 1]) {
-                        constraints.push(
-                            startAfter(cursorStack.current[page - 1])
-                        );
-                    }
-
-                    constraints.push(limit(pageSize + 1));
-
-                    const snap = await getDocs(query(usersRef, ...constraints));
-                    if (cancelled) return;
-
-                    const hasNext = snap.docs.length > pageSize;
-                    const docs = hasNext
-                        ? snap.docs.slice(0, pageSize)
-                        : snap.docs;
-
-                    if (docs.length > 0 && cursorStack.current.length <= page) {
-                        cursorStack.current[page] = docs[docs.length - 1];
+                    if (
+                        !statusChecks.verified &&
+                        !statusChecks.unverified &&
+                        !statusChecks.rejected
+                    ) {
+                        // Nothing can match — skip the round trip entirely.
+                        setPatients([]);
+                        setHasNextPage(false);
+                        return;
                     }
 
-                    const results: UnverifiedPatient[] = docs.map((d) => {
-                        const data = d.data();
+                    const toPatient = (
+                        d: DocumentSnapshot
+                    ): UnverifiedPatient => {
+                        const data = d.data()!;
                         const email = (data.email as string) || "";
                         return {
                             id: d.id,
@@ -293,9 +300,65 @@ export default function UnverifiedPage() {
                             isBanned: data.isBanned === true,
                             isVerified: data.isVerified === true,
                         };
-                    });
+                    };
 
-                    setPatients(results);
+                    // The active status filter is applied per-doc below, so a
+                    // raw batch of `pageSize` docs may contain fewer (or zero)
+                    // rows that actually match. Keep pulling subsequent raw
+                    // batches — resuming exactly where the previous page left
+                    // off — until this page has a full set of matches or the
+                    // collection runs out.
+                    let cursor: DocumentSnapshot | undefined =
+                        page > 0 ? cursorStack.current[page - 1] : undefined;
+                    const collected: UnverifiedPatient[] = [];
+
+                    while (collected.length < pageSize) {
+                        const batchConstraints = [
+                            ...baseConstraints,
+                            ...(cursor ? [startAfter(cursor)] : []),
+                            limit(pageSize),
+                        ];
+                        const snap = await getDocs(
+                            query(usersRef, ...batchConstraints)
+                        );
+                        if (cancelled) return;
+                        if (snap.empty) break;
+
+                        for (const d of snap.docs) {
+                            cursor = d;
+                            const candidate = toPatient(d);
+                            if (statusChecks[getCategory(candidate)]) {
+                                collected.push(candidate);
+                                if (collected.length === pageSize) break;
+                            }
+                        }
+
+                        if (snap.docs.length < pageSize) break;
+                    }
+
+                    let hasNext = false;
+                    if (collected.length === pageSize && cursor) {
+                        const probeSnap = await getDocs(
+                            query(
+                                usersRef,
+                                ...baseConstraints,
+                                startAfter(cursor),
+                                limit(1)
+                            )
+                        );
+                        if (cancelled) return;
+                        hasNext = !probeSnap.empty;
+                    }
+
+                    if (
+                        collected.length > 0 &&
+                        cursorStack.current.length <= page &&
+                        cursor
+                    ) {
+                        cursorStack.current[page] = cursor;
+                    }
+
+                    setPatients(collected);
                     setHasNextPage(hasNext);
                 }
             } catch (e: unknown) {
@@ -312,7 +375,16 @@ export default function UnverifiedPage() {
         return () => {
             cancelled = true;
         };
-    }, [page, debouncedQuery, pageSize, onlyVerified]);
+    }, [
+        page,
+        debouncedQuery,
+        pageSize,
+        onlyVerified,
+        onlyUnverified,
+        statusChecks.verified,
+        statusChecks.unverified,
+        statusChecks.rejected,
+    ]);
 
     // Client-side filter by status checkboxes. When the server query already
     // narrowed to verified-only (and we're not searching), show rows as-is so

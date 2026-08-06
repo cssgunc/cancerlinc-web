@@ -12,8 +12,15 @@ import { db } from "~/services/firebase_app";
 import { useAuth } from "~/services/firebase_provider";
 import { normalizeStatus, type PatientStatus } from "~/types/status";
 
-// dark red (urgent + assigned to me) > red (urgent) > yellow (active + mine)
-export type NotificationTier = "urgent-mine" | "urgent" | "active-mine";
+// Priority tiers (highest first):
+//   urgent-mine  → dark red  (urgent + assigned to me)
+//   urgent       → red       (urgent, anyone)
+//   mine         → yellow    (non-urgent + assigned to me)
+//   other        → gray      (non-urgent, someone else's or unassigned)
+export type NotificationTier = "urgent-mine" | "urgent" | "mine" | "other";
+
+// Non-resolved statuses that can have a pending reply. "closed" is excluded.
+const OPEN_STATUSES: PatientStatus[] = ["urgent", "active", "inactive"];
 
 export type NotificationItem = {
     id: string;
@@ -28,7 +35,8 @@ export type NotificationItem = {
 const TIER_RANK: Record<NotificationTier, number> = {
     "urgent-mine": 0,
     urgent: 1,
-    "active-mine": 2,
+    mine: 2,
+    other: 3,
 };
 
 function patientName(data: DocumentData): string {
@@ -48,7 +56,9 @@ function toItem(
             ? assignedToMe
                 ? "urgent-mine"
                 : "urgent"
-            : "active-mine";
+            : assignedToMe
+              ? "mine"
+              : "other";
 
     return {
         id: doc.id,
@@ -62,96 +72,71 @@ function toItem(
 }
 
 /**
- * Live notification feed for the signed-in social worker. Two listeners load
- * independently so the panel fills in incrementally: urgent conversations first
- * (red tiers), then the user's active conversations (yellow).
+ * Live notification feed for the signed-in social worker: every non-resolved
+ * conversation awaiting a reply, ranked urgent → mine → others. One query,
+ * partitioned into tiers client-side.
  */
 export function useNotifications() {
     const { user } = useAuth();
     const uid = user?.uid ?? "";
 
-    const [urgentItems, setUrgentItems] = useState<NotificationItem[]>([]);
-    const [activeItems, setActiveItems] = useState<NotificationItem[]>([]);
-    const [loadedUrgent, setLoadedUrgent] = useState(false);
-    const [loadedActive, setLoadedActive] = useState(false);
+    const [rawItems, setRawItems] = useState<NotificationItem[]>([]);
+    const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
         if (!uid) {
-            setUrgentItems([]);
-            setActiveItems([]);
-            setLoadedUrgent(false);
-            setLoadedActive(false);
+            setRawItems([]);
+            setLoaded(false);
             return;
         }
 
-        setLoadedUrgent(false);
-        setLoadedActive(false);
+        setLoaded(false);
 
-        const usersRef = collection(db, "users");
-
-        // Every urgent conversation awaiting a reply (anyone's).
-        const urgentQuery = query(
-            usersRef,
+        const awaitingQuery = query(
+            collection(db, "users"),
             where("role", "==", "patient"),
-            where("status", "==", "urgent"),
             where("awaitingReply", "==", true),
+            where("status", "in", OPEN_STATUSES),
             orderBy("lastContactTimestamp", "desc")
         );
 
-        // My active conversations awaiting a reply.
-        const activeQuery = query(
-            usersRef,
-            where("role", "==", "patient"),
-            where("status", "==", "active"),
-            where("assignedSocialWorkerId", "==", uid),
-            where("awaitingReply", "==", true),
-            orderBy("lastContactTimestamp", "desc")
-        );
-
-        const unsubUrgent = onSnapshot(
-            urgentQuery,
+        const unsubscribe = onSnapshot(
+            awaitingQuery,
             (snap) => {
-                setUrgentItems(snap.docs.map((d) => toItem(d, uid)));
-                setLoadedUrgent(true);
+                setRawItems(snap.docs.map((d) => toItem(d, uid)));
+                setLoaded(true);
             },
             (error) => {
-                console.error("Notifications (urgent) query failed:", error);
-                setUrgentItems([]);
-                setLoadedUrgent(true);
+                console.error("Notifications query failed:", error);
+                setRawItems([]);
+                setLoaded(true);
             }
         );
 
-        const unsubActive = onSnapshot(
-            activeQuery,
-            (snap) => {
-                setActiveItems(snap.docs.map((d) => toItem(d, uid)));
-                setLoadedActive(true);
-            },
-            (error) => {
-                console.error("Notifications (active) query failed:", error);
-                setActiveItems([]);
-                setLoadedActive(true);
-            }
-        );
-
-        return () => {
-            unsubUrgent();
-            unsubActive();
-        };
+        return unsubscribe;
     }, [uid]);
 
     const items = useMemo(() => {
-        return [...urgentItems, ...activeItems].sort((a, b) => {
+        return [...rawItems].sort((a, b) => {
             const rank = TIER_RANK[a.tier] - TIER_RANK[b.tier];
             return rank !== 0 ? rank : b.sortTime - a.sortTime;
         });
-    }, [urgentItems, activeItems]);
+    }, [rawItems]);
+
+    // Badge color reflects the most severe tier present.
+    const badgeColor: "red" | "yellow" | "gray" = items.some(
+        (i) => i.tier === "urgent-mine" || i.tier === "urgent"
+    )
+        ? "red"
+        : items.some((i) => i.tier === "mine")
+          ? "yellow"
+          : "gray";
 
     return {
         items,
-        // True until at least one query has returned; the panel shows
-        // "Checking for alerts…" during this window.
-        loading: !loadedUrgent && !loadedActive,
-        hasRed: items.some((i) => i.tier !== "active-mine"),
+        // True until the query has returned; the panel shows "Checking for
+        // alerts…" during this window.
+        loading: !loaded,
+        badgeColor,
     };
 }

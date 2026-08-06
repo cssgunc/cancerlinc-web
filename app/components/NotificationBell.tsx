@@ -11,12 +11,19 @@ import { statusLabel, statusStyles } from "~/types/status";
 const TIER_ACCENT: Record<NotificationTier, string> = {
     "urgent-mine": "border-l-4 border-red-700",
     urgent: "border-l-4 border-red-500",
-    "active-mine": "border-l-4 border-yellow-400",
+    mine: "border-l-4 border-yellow-400",
+    other: "border-l-4 border-gray-300",
+};
+
+const BADGE_COLOR: Record<"red" | "yellow" | "gray", string> = {
+    red: "bg-red-600",
+    yellow: "bg-yellow-500",
+    gray: "bg-gray-400",
 };
 
 export default function NotificationBell() {
     const navigate = useNavigate();
-    const { items, loading, hasRed } = useNotifications();
+    const { items, loading, badgeColor } = useNotifications();
     const [open, setOpen] = useState(false);
 
     const count = items.length;
@@ -37,9 +44,7 @@ export default function NotificationBell() {
                 <Bell className="h-5 w-5" />
                 {count > 0 ? (
                     <span
-                        className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold text-white ${
-                            hasRed ? "bg-red-600" : "bg-yellow-500"
-                        }`}
+                        className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold text-white ${BADGE_COLOR[badgeColor]}`}
                     >
                         {count}
                     </span>
